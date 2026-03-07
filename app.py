@@ -129,6 +129,51 @@ def save_results_to_sheet(df_enriched: pd.DataFrame, date: str) -> None:
         sheet.append_rows(df_combined.fillna("").values.tolist())
 
 
+def _compute_status(wynik, min_val, max_val) -> str:
+    try:
+        w = float(wynik)
+        mn = float(min_val) if min_val != "" else None
+        mx = float(max_val) if max_val != "" else None
+        if mn is not None and w < mn:
+            return "poniżej normy"
+        if mx is not None and w > mx:
+            return "powyżej normy"
+        return "w normie"
+    except (ValueError, TypeError):
+        return ""
+
+
+def save_long_rows_to_sheet(rows: list[dict]) -> None:
+    """
+    Save manually entered rows (already in long format) to Google Sheets.
+    Overwrites existing rows that share the same Data + Badanie combination.
+
+    Each dict must have keys matching SHEET_COLUMNS:
+    Data, Badanie, Wynik, Jednostka, Min, Max, Status.
+    """
+    df_existing = load_results_from_sheet()
+
+    for row in rows:
+        key_date = str(row["Data"])
+        key_test = str(row["Badanie"])
+        if not df_existing.empty:
+            df_existing = df_existing[
+                ~(
+                    (df_existing["Data"].astype(str) == key_date)
+                    & (df_existing["Badanie"].astype(str) == key_test)
+                )
+            ]
+
+    df_new = pd.DataFrame(rows, columns=SHEET_COLUMNS)
+    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+
+    sheet = connect_to_google_sheets()
+    sheet.clear()
+    sheet.append_row(SHEET_COLUMNS)
+    if not df_combined.empty:
+        sheet.append_rows(df_combined.fillna("").values.tolist())
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Chart and report generation (operate on the long-format DataFrame)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -217,7 +262,7 @@ st.set_page_config(page_title="Analizator badan laboratoryjnych", layout="wide")
 st.title("Analizator badan laboratoryjnych")
 st.caption("Wgraj zdjecie z wynikami, a aplikacja odczyta dane i porownna z normami.")
 
-tab_upload, tab_history = st.tabs(["Dodaj badanie", "Historia wynikow"])
+tab_upload, tab_manual, tab_history = st.tabs(["Dodaj badanie", "Wprowadź ręcznie", "Historia wynikow"])
 
 
 # ── Tab 1: Upload & analyse ────────────────────────────────────────────────────
@@ -357,6 +402,91 @@ with tab_upload:
             )
             with col_prev.expander("Podglad raportu"):
                 st.text(report_text)
+
+
+# ── Tab 2: Manual entry ────────────────────────────────────────────────────────
+with tab_manual:
+    st.subheader("Ręczne wprowadzanie wyników")
+
+    if "manual_rows" not in st.session_state:
+        st.session_state.manual_rows = []
+
+    with st.form("manual_form", clear_on_submit=True):
+        col_date, col_name = st.columns([1, 2])
+        with col_date:
+            manual_date = st.date_input(
+                "Data badania", value=pd.Timestamp.today(), key="mf_date"
+            ).strftime("%Y-%m-%d")
+        with col_name:
+            test_name = st.text_input("Nazwa badania (np. Glukoza)", key="mf_name")
+
+        col_val, col_unit, col_min, col_max = st.columns(4)
+        with col_val:
+            wynik = st.text_input("Wynik", key="mf_wynik")
+        with col_unit:
+            jednostka = st.text_input("Jednostka (np. mg/dL)", key="mf_unit")
+        with col_min:
+            ref_min = st.text_input("Min (norma)", key="mf_min")
+        with col_max:
+            ref_max = st.text_input("Max (norma)", key="mf_max")
+
+        add_btn = st.form_submit_button("Dodaj do listy", use_container_width=True)
+
+    if add_btn:
+        if not test_name.strip():
+            st.warning("Podaj nazwę badania.")
+        elif not wynik.strip():
+            st.warning("Podaj wynik.")
+        else:
+            try:
+                wynik_float = float(wynik.replace(",", "."))
+                min_float = float(ref_min.replace(",", ".")) if ref_min.strip() else ""
+                max_float = float(ref_max.replace(",", ".")) if ref_max.strip() else ""
+            except ValueError:
+                st.error("Wynik, Min i Max muszą być liczbami.")
+                st.stop()
+
+            status = _compute_status(wynik_float, min_float, max_float)
+            st.session_state.manual_rows.append(
+                {
+                    "Data": manual_date,
+                    "Badanie": test_name.strip(),
+                    "Wynik": wynik_float,
+                    "Jednostka": jednostka.strip(),
+                    "Min": min_float,
+                    "Max": max_float,
+                    "Status": status,
+                }
+            )
+            st.success(f"Dodano: {test_name.strip()} = {wynik_float} → {status}")
+
+    if st.session_state.manual_rows:
+        st.markdown("**Wyniki do zapisania:**")
+        st.dataframe(
+            pd.DataFrame(st.session_state.manual_rows, columns=SHEET_COLUMNS),
+            use_container_width=True,
+        )
+
+        col_save, col_clear = st.columns(2)
+        with col_save:
+            if st.button("Zapisz do Google Sheets", type="primary", use_container_width=True):
+                try:
+                    save_long_rows_to_sheet(st.session_state.manual_rows)
+                    st.success(f"Zapisano {len(st.session_state.manual_rows)} wynik(ów).")
+                    st.session_state.manual_rows = []
+                    st.rerun()
+                except KeyError:
+                    st.error("Brak sekcji [gcp_service_account] w .streamlit/secrets.toml.")
+                except gspread.exceptions.SpreadsheetNotFound:
+                    st.error(f"Arkusz '{SHEET_NAME}' nie został znaleziony.")
+                except gspread.exceptions.APIError as exc:
+                    st.error(f"Błąd API Google Sheets: {exc}")
+        with col_clear:
+            if st.button("Wyczyść listę", use_container_width=True):
+                st.session_state.manual_rows = []
+                st.rerun()
+    else:
+        st.info("Lista jest pusta. Dodaj wyniki używając formularza powyżej.")
 
 
 # ── Tab 2: History ─────────────────────────────────────────────────────────────
