@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytesseract
 import streamlit as st
+from oauth2client.service_account import ServiceAccountCredentials
 from PIL import Image as PILImage
 
 from core.analyzer import enrich_with_norms
@@ -15,7 +16,6 @@ from core.ocr_utils import ocr_image_to_text
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-CREDENTIALS_FILE = "credentials.json"
 SHEET_NAME = "historia_badan"
 SHEET_COLUMNS = ["Data", "Badanie", "Wynik", "Jednostka", "Min", "Max", "Status"]
 CHARTS_DIR = "data/charts"
@@ -29,17 +29,20 @@ REPORT_PATH = "data/raport.txt"
 @st.cache_resource
 def connect_to_google_sheets() -> gspread.Worksheet:
     """
-    Authenticate with a service account and return the first worksheet of
-    the 'historia_badan' spreadsheet.  The connection is cached for the
-    lifetime of the Streamlit session.
+    Authenticate via st.secrets["gcp_service_account"] and return the first
+    worksheet of the 'historia_badan' spreadsheet.
+    Credentials are never stored in the repo — set them in .streamlit/secrets.toml
+    locally or in the Streamlit Cloud dashboard for deployment.
     """
-    if not os.path.exists(CREDENTIALS_FILE):
-        raise FileNotFoundError(
-            f"Nie znaleziono pliku '{CREDENTIALS_FILE}'. "
-            "Umiec go w glownym katalogu aplikacji."
-        )
-    gc = gspread.service_account(filename=CREDENTIALS_FILE)
-    return gc.open(SHEET_NAME).sheet1
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(
+        st.secrets["gcp_service_account"], scope
+    )
+    client = gspread.authorize(creds)
+    return client.open(SHEET_NAME).sheet1
 
 
 def load_results_from_sheet() -> pd.DataFrame:
@@ -269,8 +272,11 @@ with tab_upload:
         with st.spinner("Zapisywanie wynikow do Google Sheets..."):
             try:
                 save_results_to_sheet(df_enriched, date)
-            except FileNotFoundError as exc:
-                st.error(str(exc))
+            except KeyError:
+                st.error(
+                    "Brak sekcji [gcp_service_account] w .streamlit/secrets.toml. "
+                    "Dodaj dane konta serwisowego zgodnie z README."
+                )
                 st.stop()
             except gspread.exceptions.SpreadsheetNotFound:
                 st.error(
@@ -353,8 +359,11 @@ with tab_upload:
 with tab_history:
     try:
         df_hist = load_results_from_sheet()
-    except FileNotFoundError as exc:
-        st.error(str(exc))
+    except KeyError:
+        st.error(
+            "Brak sekcji [gcp_service_account] w .streamlit/secrets.toml. "
+            "Dodaj dane konta serwisowego zgodnie z README."
+        )
         st.stop()
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(

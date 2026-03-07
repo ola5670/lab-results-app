@@ -1,5 +1,6 @@
 # ── Credentials (NEVER commit) ─────────────────────────────────────────────
 credentials.json
+.streamlit/secrets.toml
 
 # ── Generated runtime data ─────────────────────────────────────────────────
 data/wyniki.xlsx
