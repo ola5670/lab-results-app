@@ -17,8 +17,7 @@ def get_exam_date():
     return date
 
 
-def ocr_image_to_text(image_path, tesseract_cmd=r"C:\Program Files\Tesseract-OCR\tesseract.exe"):
-    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+def ocr_image_to_text(image_path):
     text = pytesseract.image_to_string(Image.open(image_path), lang="pol")
     clean_text = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]', '', text)
     return clean_text

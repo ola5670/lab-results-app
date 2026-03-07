@@ -1,4 +1,5 @@
 import os
+import platform
 
 import gspread
 import matplotlib
@@ -15,7 +16,11 @@ from core.data_parser import parse_ocr_results
 from core.ocr_utils import ocr_image_to_text
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# On Windows, tesseract is not in PATH so the binary path must be set explicitly.
+# On Linux (Streamlit Cloud), tesseract is installed via packages.txt and in PATH.
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 SHEET_NAME = "historia_badan"
 SHEET_COLUMNS = ["Data", "Badanie", "Wynik", "Jednostka", "Min", "Max", "Status"]
 CHARTS_DIR = "data/charts"
@@ -251,7 +256,6 @@ with tab_upload:
             temp_path = os.path.join("data", "temp_image.png")
             PILImage.open(uploaded_file).save(temp_path)
 
-            pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
             text = ocr_image_to_text(temp_path)
             df_raw = parse_ocr_results(text)
 
