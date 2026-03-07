@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytesseract
 import streamlit as st
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 from PIL import Image as PILImage
 
 from core.analyzer import enrich_with_norms
@@ -39,12 +39,12 @@ def connect_to_google_sheets() -> gspread.Worksheet:
     Credentials are never stored in the repo — set them in .streamlit/secrets.toml
     locally or in the Streamlit Cloud dashboard for deployment.
     """
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        st.secrets["gcp_service_account"], scope
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=[
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive",
+        ],
     )
     client = gspread.authorize(creds)
     return client.open(SHEET_NAME).sheet1
