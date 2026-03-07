@@ -1,0 +1,7 @@
+streamlit
+pytesseract
+Pillow
+pandas
+openpyxl
+matplotlib
+gspread

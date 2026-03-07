@@ -1,0 +1,28 @@
+# ── Credentials (NEVER commit) ─────────────────────────────────────────────
+credentials.json
+
+# ── Generated runtime data ─────────────────────────────────────────────────
+data/wyniki.xlsx
+data/raport.txt
+data/temp_image.png
+data/charts/
+
+# ── Python ─────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.Python
+env/
+venv/
+.env
+
+# ── Jupyter ────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── IDE / OS ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+CLAUDE.md
+do_zrobienia.txt
