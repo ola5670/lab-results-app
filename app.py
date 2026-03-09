@@ -411,6 +411,45 @@ with tab_manual:
     if "manual_rows" not in st.session_state:
         st.session_state.manual_rows = []
 
+    # ── Prefill from history ───────────────────────────────────────────────────
+    _hist_source = st.session_state.get("hist_df")
+    if _hist_source is None:
+        try:
+            _hist_source = load_results_from_sheet()
+        except Exception:
+            _hist_source = pd.DataFrame(columns=SHEET_COLUMNS)
+
+    _known_tests = {}
+    if not _hist_source.empty:
+        for _tname, _grp in _hist_source.groupby("Badanie"):
+            _grp_s = _grp.sort_values("Data", ascending=False)
+            _mn = pd.to_numeric(_grp_s["Min"], errors="coerce").dropna()
+            _mx = pd.to_numeric(_grp_s["Max"], errors="coerce").dropna()
+            _known_tests[_tname] = {
+                "min": str(_mn.iloc[0]) if not _mn.empty else "",
+                "max": str(_mx.iloc[0]) if not _mx.empty else "",
+                "unit": str(_grp_s["Jednostka"].iloc[0]) if "Jednostka" in _grp_s else "",
+            }
+
+    if _known_tests:
+        with st.expander("Uzupełnij normy z historii (opcjonalnie)"):
+            _sel = st.selectbox(
+                "Wybierz badanie:",
+                options=["— wybierz —"] + sorted(_known_tests.keys()),
+                key="prefill_select",
+            )
+            if _sel != "— wybierz —":
+                _pf = _known_tests[_sel]
+                st.caption(
+                    f"Ostatnia norma: **{_pf['min']} – {_pf['max']}**  |  "
+                    f"Jednostka: **{_pf['unit']}**"
+                )
+                if st.button("Zastosuj normy do formularza"):
+                    st.session_state["mf_min"] = _pf["min"]
+                    st.session_state["mf_max"] = _pf["max"]
+                    st.session_state["mf_unit"] = _pf["unit"]
+                    st.rerun()
+
     with st.form("manual_form", clear_on_submit=True):
         col_date, col_name = st.columns([1, 2])
         with col_date:
@@ -473,9 +512,9 @@ with tab_manual:
             use_container_width=True,
             num_rows="dynamic",
             column_config={
-                "Wynik": st.column_config.NumberColumn("Wynik", format="%.2f"),
-                "Min": st.column_config.NumberColumn("Min (norma)", format="%.2f"),
-                "Max": st.column_config.NumberColumn("Max (norma)", format="%.2f"),
+                "Wynik": st.column_config.NumberColumn("Wynik"),
+                "Min": st.column_config.NumberColumn("Min (norma)"),
+                "Max": st.column_config.NumberColumn("Max (norma)"),
                 "Status": st.column_config.SelectboxColumn(
                     "Status",
                     options=["w normie", "poniżej normy", "powyżej normy"],
@@ -514,25 +553,32 @@ with tab_manual:
         st.info("Lista jest pusta. Dodaj wyniki używając formularza powyżej.")
 
 
-# ── Tab 2: History ─────────────────────────────────────────────────────────────
+# ── Tab 3: History ─────────────────────────────────────────────────────────────
 with tab_history:
-    try:
-        df_hist = load_results_from_sheet()
-    except KeyError:
-        st.error(
-            "Brak sekcji [gcp_service_account] w .streamlit/secrets.toml. "
-            "Dodaj dane konta serwisowego zgodnie z README."
-        )
-        st.stop()
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error(
-            f"Arkusz '{SHEET_NAME}' nie zostal znaleziony. "
-            "Upewnij sie, ze arkusz istnieje i konto serwisowe ma do niego dostep."
-        )
-        st.stop()
-    except Exception as exc:
-        st.error(f"Blad polaczenia z Google Sheets: {exc}")
-        st.stop()
+    if "hist_df" not in st.session_state:
+        st.session_state.hist_df = None
+
+    # Load from Sheets only on first visit or after an explicit refresh/save
+    if st.session_state.hist_df is None:
+        try:
+            st.session_state.hist_df = load_results_from_sheet()
+        except KeyError:
+            st.error(
+                "Brak sekcji [gcp_service_account] w .streamlit/secrets.toml. "
+                "Dodaj dane konta serwisowego zgodnie z README."
+            )
+            st.stop()
+        except gspread.exceptions.SpreadsheetNotFound:
+            st.error(
+                f"Arkusz '{SHEET_NAME}' nie zostal znaleziony. "
+                "Upewnij sie, ze arkusz istnieje i konto serwisowe ma do niego dostep."
+            )
+            st.stop()
+        except Exception as exc:
+            st.error(f"Blad polaczenia z Google Sheets: {exc}")
+            st.stop()
+
+    df_hist = st.session_state.hist_df
 
     if df_hist.empty:
         st.info(
@@ -552,9 +598,9 @@ with tab_history:
             use_container_width=True,
             num_rows="dynamic",
             column_config={
-                "Wynik": st.column_config.NumberColumn("Wynik", format="%.2f"),
-                "Min": st.column_config.NumberColumn("Min", format="%.2f"),
-                "Max": st.column_config.NumberColumn("Max", format="%.2f"),
+                "Wynik": st.column_config.NumberColumn("Wynik"),
+                "Min": st.column_config.NumberColumn("Min"),
+                "Max": st.column_config.NumberColumn("Max"),
                 "Status": st.column_config.SelectboxColumn(
                     "Status",
                     options=["w normie", "poniżej normy", "powyżej normy"],
@@ -562,17 +608,24 @@ with tab_history:
             },
         )
 
-        if st.button("Zapisz zmiany w historii", type="primary"):
-            try:
-                _sheet = connect_to_google_sheets()
-                _sheet.clear()
-                _sheet.append_row(SHEET_COLUMNS)
-                if not edited_hist.empty:
-                    _sheet.append_rows(edited_hist.fillna("").values.tolist())
-                st.success("Historia została zaktualizowana.")
+        col_save_hist, col_refresh = st.columns(2)
+        with col_save_hist:
+            if st.button("Zapisz zmiany w historii", type="primary", use_container_width=True):
+                try:
+                    _sheet = connect_to_google_sheets()
+                    _sheet.clear()
+                    _sheet.append_row(SHEET_COLUMNS)
+                    if not edited_hist.empty:
+                        _sheet.append_rows(edited_hist.fillna("").values.tolist())
+                    st.success("Historia została zaktualizowana.")
+                    st.session_state.hist_df = None  # force reload
+                    st.rerun()
+                except gspread.exceptions.APIError as exc:
+                    st.error(f"Błąd API Google Sheets: {exc}")
+        with col_refresh:
+            if st.button("Odśwież dane", use_container_width=True):
+                st.session_state.hist_df = None
                 st.rerun()
-            except gspread.exceptions.APIError as exc:
-                st.error(f"Błąd API Google Sheets: {exc}")
 
         # Show charts generated during the last upload session (if present)
         if os.path.exists(CHARTS_DIR):
