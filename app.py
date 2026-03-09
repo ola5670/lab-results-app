@@ -512,9 +512,9 @@ with tab_manual:
             use_container_width=True,
             num_rows="dynamic",
             column_config={
-                "Wynik": st.column_config.NumberColumn("Wynik"),
-                "Min": st.column_config.NumberColumn("Min (norma)"),
-                "Max": st.column_config.NumberColumn("Max (norma)"),
+                "Wynik": st.column_config.TextColumn("Wynik"),
+                "Min": st.column_config.TextColumn("Min (norma)"),
+                "Max": st.column_config.TextColumn("Max (norma)"),
                 "Status": st.column_config.SelectboxColumn(
                     "Status",
                     options=["w normie", "poniżej normy", "powyżej normy"],
@@ -598,9 +598,9 @@ with tab_history:
             use_container_width=True,
             num_rows="dynamic",
             column_config={
-                "Wynik": st.column_config.NumberColumn("Wynik"),
-                "Min": st.column_config.NumberColumn("Min"),
-                "Max": st.column_config.NumberColumn("Max"),
+                "Wynik": st.column_config.TextColumn("Wynik"),
+                "Min": st.column_config.TextColumn("Min"),
+                "Max": st.column_config.TextColumn("Max"),
                 "Status": st.column_config.SelectboxColumn(
                     "Status",
                     options=["w normie", "poniżej normy", "powyżej normy"],
@@ -616,6 +616,12 @@ with tab_history:
                     _sheet.clear()
                     _sheet.append_row(SHEET_COLUMNS)
                     if not edited_hist.empty:
+                        for _c in ("Wynik", "Min", "Max"):
+                            edited_hist[_c] = (
+                                edited_hist[_c].astype(str)
+                                .str.replace(",", ".", regex=False)
+                                .replace("nan", "")
+                            )
                         _sheet.append_rows(edited_hist.fillna("").values.tolist())
                     st.success("Historia została zaktualizowana.")
                     st.session_state.hist_df = None  # force reload
