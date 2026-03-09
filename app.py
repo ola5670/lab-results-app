@@ -255,10 +255,207 @@ def generate_report_text(df_long: pd.DataFrame, output_path: str = REPORT_PATH) 
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# UI helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+def render_results_cards(df_enriched: pd.DataFrame, date: str) -> None:
+    """Render styled analysis summary and test-result cards."""
+    wynik_col = f"Wynik {date}"
+    status_col = f"Status {date}"
+
+    if wynik_col not in df_enriched.columns or status_col not in df_enriched.columns:
+        st.dataframe(df_enriched, use_container_width=True)
+        return
+
+    statuses = df_enriched[status_col].fillna("")
+    n_normal = int((statuses == "w normie").sum())
+    n_low    = int((statuses == "poniżej normy").sum())
+    n_high   = int((statuses == "powyżej normy").sum())
+    abnormal_names = df_enriched[
+        statuses.isin(["poniżej normy", "powyżej normy"])
+    ]["Badanie"].tolist()
+
+    # ── Analysis Summary cards ────────────────────────────────────────────────
+    c1, c2, c3 = st.columns(3, gap="small")
+    c1.markdown(f"""
+<div style="background:#EAF5EF;border-radius:16px;padding:20px 24px;">
+  <div style="color:#2D7A5C;font-weight:600;font-size:14px;">✓&nbsp; W normie</div>
+  <div style="font-size:44px;font-weight:700;color:#1A1A1A;margin-top:8px;line-height:1;">{n_normal}</div>
+</div>""", unsafe_allow_html=True)
+    c2.markdown(f"""
+<div style="background:#FDF6EE;border-radius:16px;padding:20px 24px;">
+  <div style="color:#B5520F;font-weight:600;font-size:14px;">↗&nbsp; Poniżej normy</div>
+  <div style="font-size:44px;font-weight:700;color:#1A1A1A;margin-top:8px;line-height:1;">{n_low}</div>
+</div>""", unsafe_allow_html=True)
+    c3.markdown(f"""
+<div style="background:#FEEDED;border-radius:16px;padding:20px 24px;">
+  <div style="color:#C0392B;font-weight:600;font-size:14px;">⚠&nbsp; Powyżej normy</div>
+  <div style="font-size:44px;font-weight:700;color:#1A1A1A;margin-top:8px;line-height:1;">{n_high}</div>
+</div>""", unsafe_allow_html=True)
+
+    # ── Attention Required box ────────────────────────────────────────────────
+    if abnormal_names:
+        pills = "".join(
+            f'<span style="background:#FFFFFF;border-radius:20px;padding:5px 16px;'
+            f'margin:4px 4px 0 0;display:inline-block;font-size:13px;font-weight:500;'
+            f'border:1px solid #DDD8CC;">{name}</span>'
+            for name in abnormal_names
+        )
+        st.markdown(f"""
+<div style="background:#EDE4D0;border-radius:16px;padding:20px 24px;margin-top:16px;">
+  <div style="font-weight:700;font-size:15px;margin-bottom:6px;">ⓘ Wymaga uwagi</div>
+  <div style="font-size:14px;color:#5C4A2A;margin-bottom:12px;">
+    {len(abnormal_names)} wynik(i) poza normą. Skonsultuj się z lekarzem.
+  </div>
+  <div>{pills}</div>
+</div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+
+    # ── Test Result Cards ─────────────────────────────────────────────────────
+    st.markdown(
+        "<div style='font-size:22px;font-weight:700;color:#1A1A1A;margin-bottom:4px;'>"
+        "Wyniki badań</div>",
+        unsafe_allow_html=True,
+    )
+
+    rows = df_enriched.to_dict("records")
+    cols = st.columns(3, gap="medium")
+
+    for i, row in enumerate(rows):
+        name      = str(row.get("Badanie", ""))
+        wynik_raw = row.get(wynik_col, "")
+        status    = str(row.get(status_col, ""))
+        jedn      = str(row.get("Jedn.", ""))
+        min_val   = row.get("Min", "")
+        max_val   = row.get("Max", "")
+
+        # Badge & color
+        if status == "w normie":
+            badge_bg, badge_color, badge_label = "#E8F5EF", "#2D7A5C", "W normie"
+            bar_color, status_icon = "#2D7A5C", "✓"
+        elif status == "powyżej normy":
+            badge_bg, badge_color, badge_label = "#FEEAEA", "#C0392B", "Powyżej normy"
+            bar_color, status_icon = "#C0392B", "⚠"
+        elif status == "poniżej normy":
+            badge_bg, badge_color, badge_label = "#FEF3E8", "#B5520F", "Poniżej normy"
+            bar_color, status_icon = "#D4713A", "↗"
+        else:
+            badge_bg, badge_color, badge_label = "#F0F0F0", "#666666", "—"
+            bar_color, status_icon = "#CCCCCC", "—"
+
+        # Range bar fill %
+        pct = 50.0
+        try:
+            v  = float(str(wynik_raw).replace(",", "."))
+            mn = float(str(min_val)) if str(min_val) not in ("", "nan") else None
+            mx = float(str(max_val)) if str(max_val) not in ("", "nan") else None
+            if mn is not None and mx is not None and mx > mn:
+                pct = min(100.0, max(0.0, (v - mn) / (mx - mn) * 100))
+        except (ValueError, TypeError):
+            pass
+
+        # Display value
+        try:
+            v_disp = f"{float(str(wynik_raw).replace(',', '.')):.4g}"
+        except (ValueError, TypeError):
+            v_disp = str(wynik_raw)
+
+        min_disp = "" if str(min_val) in ("", "nan") else str(min_val)
+        max_disp = "" if str(max_val) in ("", "nan") else str(max_val)
+
+        range_html = ""
+        if min_disp or max_disp:
+            range_html = f"""
+  <div style="display:flex;justify-content:space-between;font-size:12px;color:#999;margin-top:14px;">
+    <span>{min_disp}</span>
+    <span style="color:#BBBBBB;">Zakres normalny</span>
+    <span>{max_disp}</span>
+  </div>
+  <div style="background:#E8E5DF;border-radius:4px;height:6px;margin-top:4px;overflow:hidden;">
+    <div style="background:{bar_color};height:6px;width:{pct:.1f}%;border-radius:4px;"></div>
+  </div>"""
+
+        card_html = f"""
+<div style="background:#FFFFFF;border-radius:16px;padding:20px 22px;margin-bottom:16px;
+     box-shadow:0 1px 6px rgba(0,0,0,0.06);border:1px solid #F0EDE8;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <span style="font-weight:700;font-size:15px;color:#1A1A1A;">{name}</span>
+    <span style="background:{badge_bg};color:{badge_color};border-radius:20px;
+          padding:3px 12px;font-size:12px;font-weight:600;white-space:nowrap;">
+      {status_icon}&nbsp;{badge_label}
+    </span>
+  </div>
+  <div style="height:14px;"></div>
+  <div style="font-size:34px;font-weight:700;color:#1A1A1A;line-height:1;">
+    {v_disp}&nbsp;<span style="font-size:14px;font-weight:400;color:#999;">{jedn}</span>
+  </div>
+  {range_html}
+</div>"""
+        cols[i % 3].markdown(card_html, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Streamlit UI
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(page_title="Analizator badan laboratoryjnych", layout="wide")
+
+st.markdown("""
+<style>
+/* ── Page background ────────────────────────────────── */
+.stApp, [data-testid="stAppViewContainer"] { background-color: #F5F3EF !important; }
+section[data-testid="stMain"] { background-color: #F5F3EF !important; }
+
+/* ── Block container ────────────────────────────────── */
+.block-container { padding-top: 2rem !important; }
+
+/* ── Tabs ───────────────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] { gap: 4px; background: transparent !important; border-bottom: none !important; }
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px !important;
+    padding: 8px 20px !important;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666 !important;
+    background: transparent !important;
+}
+.stTabs [aria-selected="true"] {
+    background: #FFFFFF !important;
+    color: #1A1A1A !important;
+    font-weight: 600 !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08) !important;
+}
+.stTabs [data-baseweb="tab-highlight"] { display: none !important; }
+.stTabs [data-baseweb="tab-border"] { display: none !important; }
+
+/* ── Primary button ─────────────────────────────────── */
+[data-testid="stBaseButton-primary"] {
+    background-color: #2D7A5C !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+}
+[data-testid="stBaseButton-primary"]:hover {
+    background-color: #256349 !important;
+}
+[data-testid="stBaseButton-secondary"] {
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+}
+
+/* ── File uploader ──────────────────────────────────── */
+[data-testid="stFileUploaderDropzone"] { border-radius: 12px !important; }
+
+/* ── Expander ───────────────────────────────────────── */
+[data-testid="stExpander"] { border-radius: 12px !important; background: #FFFFFF; }
+
+/* ── Headings ───────────────────────────────────────── */
+h1 { color: #1A1A1A !important; font-weight: 700 !important; }
+h2, h3 { color: #1A1A1A !important; font-weight: 600 !important; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("Analizator badan laboratoryjnych")
 st.caption("Wgraj zdjecie z wynikami, a aplikacja odczyta dane i porownna z normami.")
 
@@ -339,37 +536,8 @@ with tab_upload:
 
         st.success(f"Wyniki z {date} zostaly zapisane w Google Sheets.")
 
-        # ── Step 4: Anomaly summary ───────────────────────────────────────────
-        status_col = f"Status {date}"
-        wynik_col = f"Wynik {date}"
-        if status_col in df_enriched.columns:
-            anomalies = df_enriched[
-                df_enriched[status_col].isin(["poniżej normy", "powyżej normy"])
-            ]
-            if anomalies.empty:
-                st.success("Wszystkie odczytane wyniki sa w normie.")
-            else:
-                st.warning(f"{len(anomalies)} wynik(ow) poza norma:")
-                for _, r in anomalies.iterrows():
-                    direction = (
-                        "PONIŻEJ normy"
-                        if r[status_col] == "poniżej normy"
-                        else "POWYŻEJ normy"
-                    )
-                    st.markdown(
-                        f"- **{r['Badanie']}**: {r[wynik_col]} {r.get('Jedn.', '')} "
-                        f"(norma: {r.get('Min', '?')} – {r.get('Max', '?')}) — _{direction}_"
-                    )
-
-        # ── Step 5: Results table ─────────────────────────────────────────────
-        display_cols = [
-            "Badanie", "Jedn.", "Zakres referencyjny", wynik_col, status_col, "Min", "Max",
-        ]
-        with st.expander("Pelna tabela wynikow z tego badania", expanded=True):
-            st.dataframe(
-                df_enriched[[c for c in display_cols if c in df_enriched.columns]],
-                use_container_width=True,
-            )
+        # ── Steps 4+5: Analysis summary + results cards ──────────────────────
+        render_results_cards(df_enriched, date)
 
         # ── Step 6: Charts and report ─────────────────────────────────────────
         with st.spinner("Generowanie wykresow i raportu..."):
