@@ -502,10 +502,9 @@ with tab_manual:
     if st.session_state.manual_rows:
         st.markdown("**Wyniki do zapisania** (możesz edytować komórki lub usuwać wiersze):")
 
-        # Convert "" to None so NumberColumn renders decimals correctly
         df_edit = pd.DataFrame(st.session_state.manual_rows, columns=SHEET_COLUMNS)
-        for _col in ("Min", "Max"):
-            df_edit[_col] = df_edit[_col].replace("", None)
+        for _col in ("Wynik", "Min", "Max"):
+            df_edit[_col] = df_edit[_col].astype(str).replace("nan", "").replace("<NA>", "")
 
         edited_df = st.data_editor(
             df_edit,
@@ -591,7 +590,11 @@ with tab_history:
 
         df_hist_edit = df_hist.copy()
         for _col in ("Wynik", "Min", "Max"):
-            df_hist_edit[_col] = pd.to_numeric(df_hist_edit[_col], errors="coerce")
+            df_hist_edit[_col] = (
+                pd.to_numeric(df_hist_edit[_col], errors="coerce")
+                .astype(str)
+                .replace("nan", "")
+            )
 
         edited_hist = st.data_editor(
             df_hist_edit,
