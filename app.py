@@ -22,7 +22,7 @@ if platform.system() == "Windows":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 SHEET_NAME = "historia_badan"
-SHEET_COLUMNS = ["Data", "Badanie", "Wynik", "Jednostka", "Min", "Max", "Status"]
+SHEET_COLUMNS = ["Data", "Badanie", "Wynik", "Jednostka", "Min", "Max", "Status", "Użytkownik"]
 CHARTS_DIR = "data/charts"
 REPORT_PATH = "data/raport.txt"
 
@@ -74,7 +74,7 @@ def load_results_from_sheet() -> pd.DataFrame:
     return df
 
 
-def save_results_to_sheet(df_enriched: pd.DataFrame, date: str) -> None:
+def save_results_to_sheet(df_enriched: pd.DataFrame, date: str, user: str = "") -> None:
     """
     Convert the enriched OCR DataFrame (wide format, one column per date) into
     the long format expected by Google Sheets and write it to the sheet.
@@ -107,14 +107,22 @@ def save_results_to_sheet(df_enriched: pd.DataFrame, date: str) -> None:
             _safe_float(row.get("Min", "")),
             _safe_float(row.get("Max", "")),
             row.get(status_col, ""),
+            user,
         ]
         for _, row in df_enriched.iterrows()
     ]
 
-    # Load existing data, drop rows for this date (overwrite semantics)
+    # Load existing data, drop rows for this date+user (overwrite semantics)
     df_existing = load_results_from_sheet()
     if not df_existing.empty:
-        df_existing = df_existing[df_existing["Data"].astype(str) != str(date)]
+        if "Użytkownik" not in df_existing.columns:
+            df_existing["Użytkownik"] = ""
+        df_existing = df_existing[
+            ~(
+                (df_existing["Data"].astype(str) == str(date))
+                & (df_existing["Użytkownik"].astype(str) == str(user))
+            )
+        ]
 
     df_combined = pd.concat(
         [df_existing, pd.DataFrame(new_rows, columns=SHEET_COLUMNS)],
@@ -146,21 +154,25 @@ def _compute_status(wynik, min_val, max_val) -> str:
 def save_long_rows_to_sheet(rows: list[dict]) -> None:
     """
     Save manually entered rows (already in long format) to Google Sheets.
-    Overwrites existing rows that share the same Data + Badanie combination.
+    Overwrites existing rows that share the same Data + Badanie + Użytkownik combination.
 
     Each dict must have keys matching SHEET_COLUMNS:
-    Data, Badanie, Wynik, Jednostka, Min, Max, Status.
+    Data, Badanie, Wynik, Jednostka, Min, Max, Status, Użytkownik.
     """
     df_existing = load_results_from_sheet()
+    if not df_existing.empty and "Użytkownik" not in df_existing.columns:
+        df_existing["Użytkownik"] = ""
 
     for row in rows:
         key_date = str(row["Data"])
         key_test = str(row["Badanie"])
+        key_user = str(row.get("Użytkownik", ""))
         if not df_existing.empty:
             df_existing = df_existing[
                 ~(
                     (df_existing["Data"].astype(str) == key_date)
                     & (df_existing["Badanie"].astype(str) == key_test)
+                    & (df_existing["Użytkownik"].astype(str) == key_user)
                 )
             ]
 
@@ -459,6 +471,25 @@ h2, h3 { color: #1A1A1A !important; font-weight: 600 !important; }
 st.title("Analizator badan laboratoryjnych")
 st.caption("Wgraj zdjecie z wynikami, a aplikacja odczyta dane i porownna z normami.")
 
+with st.sidebar:
+    st.markdown("### Użytkownik")
+    current_user = st.text_input(
+        "Twoja nazwa",
+        value=st.session_state.get("current_user", ""),
+        placeholder="np. Anna",
+        key="_user_input",
+    )
+    if current_user.strip():
+        st.session_state.current_user = current_user.strip()
+    else:
+        st.session_state.setdefault("current_user", "")
+
+current_user = st.session_state.get("current_user", "")
+
+if not current_user:
+    st.warning("Podaj swoją nazwę w panelu bocznym, aby korzystać z aplikacji.")
+    st.stop()
+
 tab_upload, tab_manual, tab_history = st.tabs(["Dodaj badanie", "Wprowadź ręcznie", "Historia wynikow"])
 
 
@@ -517,7 +548,7 @@ with tab_upload:
         # ── Step 3: Save to Google Sheets ─────────────────────────────────────
         with st.spinner("Zapisywanie wynikow do Google Sheets..."):
             try:
-                save_results_to_sheet(df_enriched, date)
+                save_results_to_sheet(df_enriched, date, current_user)
             except KeyError:
                 st.error(
                     "Brak sekcji [gcp_service_account] w .streamlit/secrets.toml. "
@@ -663,6 +694,7 @@ with tab_manual:
                     "Min": min_float,
                     "Max": max_float,
                     "Status": status,
+                    "Użytkownik": current_user,
                 }
             )
             st.success(f"Dodano: {test_name.strip()} = {wynik_float} → {status}")
@@ -747,6 +779,12 @@ with tab_history:
 
     df_hist = st.session_state.hist_df
 
+    # Filter to current user (handle sheets that predate the Użytkownik column)
+    if not df_hist.empty:
+        if "Użytkownik" not in df_hist.columns:
+            df_hist["Użytkownik"] = ""
+        df_hist = df_hist[df_hist["Użytkownik"].astype(str) == current_user]
+
     if df_hist.empty:
         st.info(
             "Brak zapisanych wynikow. "
@@ -792,32 +830,49 @@ with tab_history:
             df_wynik["Wynik"].astype(str).str.replace(",", ".", regex=False),
             errors="coerce",
         )
-        df_status = df_hist[["Data", "Badanie", "Status"]].copy()
+
+        # Build row label: "Badanie (unit)" when a test has multiple units
+        _units_per_test = (
+            df_wynik.groupby("Badanie")["Jednostka"]
+            .apply(lambda s: s.dropna().unique())
+        )
+        def _row_label(badanie, jednostka):
+            units = _units_per_test.get(badanie, [])
+            units = [u for u in units if u and str(u).strip()]
+            if len(units) > 1 and jednostka and str(jednostka).strip():
+                return f"{badanie} ({jednostka})"
+            return badanie
+
+        df_wynik["_row"] = df_wynik.apply(
+            lambda r: _row_label(r["Badanie"], r["Jednostka"]), axis=1
+        )
+        df_status = df_hist.copy()
+        df_status["_row"] = df_wynik["_row"]
 
         sorted_dates = sorted(df_wynik["Data"].astype(str).unique(), reverse=True)
 
         pivot = (
             df_wynik.pivot_table(
-                index="Badanie", columns="Data", values="Wynik", aggfunc="first"
+                index="_row", columns="Data", values="Wynik", aggfunc="first"
             )
             .reindex(columns=sorted_dates)
         )
         pivot_status = (
             df_status.pivot_table(
-                index="Badanie", columns="Data", values="Status", aggfunc="first"
+                index="_row", columns="Data", values="Status", aggfunc="first"
             )
             .reindex(columns=sorted_dates)
         )
 
-        # Add Min / Max columns from the most recent entry per test
+        # Add Min / Max columns from the most recent entry per row label
         _norm = (
-            df_hist.copy()
+            df_wynik.copy()
             .assign(
                 Min=pd.to_numeric(df_hist["Min"].astype(str).str.replace(",", ".", regex=False), errors="coerce"),
                 Max=pd.to_numeric(df_hist["Max"].astype(str).str.replace(",", ".", regex=False), errors="coerce"),
             )
             .sort_values("Data", ascending=False)
-            .groupby("Badanie")[["Min", "Max"]]
+            .groupby("_row")[["Min", "Max"]]
             .first()
         )
         pivot.insert(0, "Max", _norm["Max"])
@@ -842,6 +897,8 @@ with tab_history:
                             styles.at[row, col] = _color_cell(df.at[row, col], status)
             return styles
 
+        pivot.index.name = "Badanie"
+        pivot_status.index.name = "Badanie"
         pivot.columns.name = None  # remove column axis name to avoid subset issues
 
         def _fmt(v):
@@ -868,7 +925,7 @@ with tab_history:
         )
 
         summary_rows = []
-        for badanie, grp in df_wynik.groupby("Badanie"):
+        for row_label, grp in df_wynik.groupby("_row"):
             grp_sorted = grp.dropna(subset=["Wynik"]).sort_values("Data")
             if grp_sorted.empty:
                 continue
@@ -886,14 +943,10 @@ with tab_history:
             else:
                 prev = prev_date = delta = delta_pct = None
 
-            # unit
-            unit = ""
-            u_grp = df_hist[df_hist["Badanie"] == badanie]["Jednostka"]
-            if not u_grp.empty:
-                unit = str(u_grp.iloc[0])
+            unit = str(grp_sorted["Jednostka"].iloc[-1]) if "Jednostka" in grp_sorted else ""
 
             summary_rows.append({
-                "badanie": badanie,
+                "badanie": row_label,
                 "min_val": min_val,
                 "max_val": max_val,
                 "latest": latest,
