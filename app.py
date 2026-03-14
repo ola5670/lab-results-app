@@ -762,6 +762,30 @@ with tab_history:
                 st.session_state.hist_df = None
                 st.rerun()
 
+        # ── Alphabet filter ───────────────────────────────────────────────────
+        all_tests = sorted(df_hist["Badanie"].astype(str).unique())
+        first_letters = sorted({t[0].upper() for t in all_tests if t})
+
+        if "alpha_filter" not in st.session_state:
+            st.session_state.alpha_filter = "Wszystkie"
+
+        btn_labels = ["Wszystkie"] + first_letters
+        btn_cols = st.columns(len(btn_labels))
+        for idx, label in enumerate(btn_labels):
+            active = st.session_state.alpha_filter == label
+            if btn_cols[idx].button(
+                label,
+                key=f"alpha_{label}",
+                type="primary" if active else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.alpha_filter = label
+                st.rerun()
+
+        _letter = st.session_state.alpha_filter
+        if _letter != "Wszystkie":
+            df_hist = df_hist[df_hist["Badanie"].astype(str).str.upper().str.startswith(_letter)]
+
         # ── Pivot table: rows = Badanie, columns = dates ──────────────────────
         df_wynik = df_hist.copy()
         df_wynik["Wynik"] = pd.to_numeric(
