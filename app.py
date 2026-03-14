@@ -907,10 +907,10 @@ with tab_history:
         def _fmt(v):
             try:
                 if v is None or (isinstance(v, float) and pd.isna(v)):
-                    return " "
+                    return "-"
                 return f"{float(v):.4g}"
             except (TypeError, ValueError):
-                return " "
+                return "-"
 
         _numeric_cols = [c for c in pivot.columns if c != "Jednostka"]
         styled = (
