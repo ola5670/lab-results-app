@@ -823,10 +823,10 @@ with tab_history:
         def _fmt(v):
             try:
                 if v is None or (isinstance(v, float) and pd.isna(v)):
-                    return ""
+                    return " "
                 return f"{float(v):.4g}"
             except (TypeError, ValueError):
-                return ""
+                return " "
 
         styled = (
             pivot.style
