@@ -794,7 +794,30 @@ with tab_history:
         )
     else:
         dates_available = sorted(df_hist["Data"].astype(str).unique())
-        st.caption(f"Zapisane daty badań: {', '.join(dates_available)}")
+        from collections import defaultdict
+        _by_year = defaultdict(list)
+        for d in dates_available:
+            _by_year[d[:4]].append(d[5:])  # group by year, keep MM-DD
+
+        year_html = ""
+        for year in sorted(_by_year):
+            pills = "".join(
+                f'<span style="background:#F0EDE8;border-radius:6px;padding:2px 8px;'
+                f'margin:2px;display:inline-block;font-size:12px;color:#555;">{d}</span>'
+                for d in _by_year[year]
+            )
+            year_html += (
+                f'<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">'
+                f'<span style="font-weight:600;font-size:13px;color:#1A1A1A;min-width:36px;">{year}</span>'
+                f'<div>{pills}</div></div>'
+            )
+        st.markdown(
+            f'<div style="background:#FFFFFF;border-radius:12px;padding:14px 18px;'
+            f'margin-bottom:16px;border:1px solid #F0EDE8;">'
+            f'<div style="font-weight:600;font-size:13px;color:#888;margin-bottom:8px;">Zapisane daty badań</div>'
+            f'{year_html}</div>',
+            unsafe_allow_html=True,
+        )
 
         col_refresh, _ = st.columns([1, 3])
         with col_refresh:
