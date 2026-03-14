@@ -797,27 +797,51 @@ with tab_history:
         from collections import defaultdict
         _by_year = defaultdict(list)
         for d in dates_available:
-            _by_year[d[:4]].append(d[5:])  # group by year, keep MM-DD
+            _by_year[d[:4]].append(d)
+        all_years = sorted(_by_year.keys())
 
-        year_html = ""
-        for year in sorted(_by_year):
-            pills = "".join(
-                f'<span style="background:#F0EDE8;border-radius:6px;padding:2px 8px;'
-                f'margin:2px;display:inline-block;font-size:12px;color:#555;">{d}</span>'
-                for d in _by_year[year]
-            )
-            year_html += (
-                f'<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">'
-                f'<span style="font-weight:600;font-size:13px;color:#1A1A1A;min-width:36px;">{year}</span>'
-                f'<div>{pills}</div></div>'
-            )
+        if "year_filter" not in st.session_state:
+            st.session_state.year_filter = "Wszystkie"
+
+        # ── Year selector buttons ──────────────────────────────────────────────
         st.markdown(
-            f'<div style="background:#FFFFFF;border-radius:12px;padding:14px 18px;'
-            f'margin-bottom:16px;border:1px solid #F0EDE8;">'
-            f'<div style="font-weight:600;font-size:13px;color:#888;margin-bottom:8px;">Zapisane daty badań</div>'
-            f'{year_html}</div>',
+            '<div style="font-weight:600;font-size:13px;color:#888;margin-bottom:8px;">'
+            'Zapisane daty badań</div>',
             unsafe_allow_html=True,
         )
+        year_btn_cols = st.columns([1] + [1] * len(all_years) + [4])
+        if year_btn_cols[0].button(
+            "Wszystkie",
+            key="yr_all",
+            type="primary" if st.session_state.year_filter == "Wszystkie" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state.year_filter = "Wszystkie"
+            st.rerun()
+        for i, yr in enumerate(all_years):
+            if year_btn_cols[i + 1].button(
+                yr,
+                key=f"yr_{yr}",
+                type="primary" if st.session_state.year_filter == yr else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.year_filter = yr
+                st.rerun()
+
+        # ── Show dates for selected year ───────────────────────────────────────
+        _active_year = st.session_state.year_filter
+        _show_dates = _by_year[_active_year] if _active_year != "Wszystkie" else []
+        if _show_dates:
+            pills = "".join(
+                f'<span style="background:#F0EDE8;border-radius:6px;padding:3px 10px;'
+                f'margin:2px;display:inline-block;font-size:12px;color:#555;">{d}</span>'
+                for d in sorted(_show_dates)
+            )
+            st.markdown(
+                f'<div style="background:#FFFFFF;border-radius:10px;padding:10px 14px;'
+                f'margin:6px 0 12px;border:1px solid #F0EDE8;">{pills}</div>',
+                unsafe_allow_html=True,
+            )
 
         col_refresh, _ = st.columns([1, 3])
         with col_refresh:
@@ -874,7 +898,13 @@ with tab_history:
         df_status = df_hist.copy()
         df_status["_row"] = df_wynik["_row"]
 
-        sorted_dates = sorted(df_wynik["Data"].astype(str).unique(), reverse=True)
+        _all_dates = sorted(df_wynik["Data"].astype(str).unique(), reverse=True)
+        _active_year = st.session_state.get("year_filter", "Wszystkie")
+        sorted_dates = (
+            [d for d in _all_dates if d.startswith(_active_year)]
+            if _active_year != "Wszystkie"
+            else _all_dates
+        )
 
         pivot = (
             df_wynik.pivot_table(
