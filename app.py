@@ -870,8 +870,8 @@ with tab_history:
         _norm = (
             df_wynik.copy()
             .assign(
-                Min=pd.to_numeric(df_hist["Min"].astype(str).str.replace(",", ".", regex=False), errors="coerce"),
-                Max=pd.to_numeric(df_hist["Max"].astype(str).str.replace(",", ".", regex=False), errors="coerce"),
+                Min=pd.to_numeric(df_wynik["Min"].astype(str).str.replace(",", ".", regex=False), errors="coerce"),
+                Max=pd.to_numeric(df_wynik["Max"].astype(str).str.replace(",", ".", regex=False), errors="coerce"),
             )
             .sort_values("Data", ascending=False)
             .groupby("_row")[["Min", "Max", "Jednostka"]]
