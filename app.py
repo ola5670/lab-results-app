@@ -818,11 +818,20 @@ with tab_history:
                             styles.at[row, col] = _color_cell(df.at[row, col], status)
             return styles
 
+        pivot.columns.name = None  # remove column axis name to avoid subset issues
+
+        def _fmt(v):
+            try:
+                if v is None or (isinstance(v, float) and pd.isna(v)):
+                    return ""
+                return f"{float(v):.4g}"
+            except (TypeError, ValueError):
+                return ""
+
         styled = (
             pivot.style
             .apply(_style_pivot, axis=None)
-            .format(lambda v: f"{v:.4g}" if pd.notna(v) else "", subset=sorted_dates)
-            .format(lambda v: f"{v:.4g}" if pd.notna(v) else "", subset=["Min", "Max"])
+            .format(_fmt)
         )
 
         st.dataframe(styled, use_container_width=True)
