@@ -117,10 +117,11 @@ def save_results_to_sheet(df_enriched: pd.DataFrame, date: str, user: str = "") 
     if not df_existing.empty:
         if "Użytkownik" not in df_existing.columns:
             df_existing["Użytkownik"] = ""
+        _u_col = df_existing["Użytkownik"].astype(str).str.strip()
         df_existing = df_existing[
             ~(
                 (df_existing["Data"].astype(str) == str(date))
-                & (df_existing["Użytkownik"].astype(str) == str(user))
+                & ((_u_col == str(user)) | (_u_col == ""))
             )
         ]
 
@@ -779,11 +780,12 @@ with tab_history:
 
     df_hist = st.session_state.hist_df
 
-    # Filter to current user (handle sheets that predate the Użytkownik column)
+    # Filter to current user; rows with empty Użytkownik are legacy data shown to all
     if not df_hist.empty:
         if "Użytkownik" not in df_hist.columns:
             df_hist["Użytkownik"] = ""
-        df_hist = df_hist[df_hist["Użytkownik"].astype(str) == current_user]
+        _u = df_hist["Użytkownik"].astype(str).str.strip()
+        df_hist = df_hist[(_u == current_user) | (_u == "")]
 
     if df_hist.empty:
         st.info(
