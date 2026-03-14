@@ -803,33 +803,26 @@ with tab_history:
         if "year_filter" not in st.session_state:
             st.session_state.year_filter = "Wszystkie"
 
-        # ── Year selector buttons ──────────────────────────────────────────────
+        # ── Year selector ──────────────────────────────────────────────────────
         st.markdown(
-            '<div style="font-weight:600;font-size:13px;color:#888;margin-bottom:8px;">'
+            '<div style="font-weight:600;font-size:13px;color:#888;margin-bottom:4px;">'
             'Zapisane daty badań</div>',
             unsafe_allow_html=True,
         )
-        year_btn_cols = st.columns([1] + [1] * len(all_years) + [4])
-        if year_btn_cols[0].button(
-            "Wszystkie",
-            key="yr_all",
-            type="primary" if st.session_state.year_filter == "Wszystkie" else "secondary",
-            use_container_width=True,
-        ):
-            st.session_state.year_filter = "Wszystkie"
+        selected_year = st.radio(
+            "Rok",
+            options=["Wszystkie"] + all_years,
+            index=(["Wszystkie"] + all_years).index(st.session_state.year_filter),
+            horizontal=True,
+            label_visibility="collapsed",
+            key="year_radio",
+        )
+        if selected_year != st.session_state.year_filter:
+            st.session_state.year_filter = selected_year
             st.rerun()
-        for i, yr in enumerate(all_years):
-            if year_btn_cols[i + 1].button(
-                yr,
-                key=f"yr_{yr}",
-                type="primary" if st.session_state.year_filter == yr else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state.year_filter = yr
-                st.rerun()
 
         # ── Show dates for selected year ───────────────────────────────────────
-        _active_year = st.session_state.year_filter
+        _active_year = selected_year
         _show_dates = _by_year[_active_year] if _active_year != "Wszystkie" else []
         if _show_dates:
             pills = "".join(
