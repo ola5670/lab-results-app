@@ -754,33 +754,87 @@ with tab_history:
         )
     else:
         dates_available = sorted(df_hist["Data"].astype(str).unique())
-        st.caption(f"Zapisane daty badan: {', '.join(dates_available)}")
+        st.caption(f"Zapisane daty badań: {', '.join(dates_available)}")
 
-        df_hist_edit = df_hist.copy()
-        for _col in ("Wynik", "Min", "Max"):
-            df_hist_edit[_col] = (
-                pd.to_numeric(df_hist_edit[_col], errors="coerce")
-                .astype(str)
-                .replace("nan", "")
+        col_refresh, _ = st.columns([1, 3])
+        with col_refresh:
+            if st.button("Odśwież dane", use_container_width=True):
+                st.session_state.hist_df = None
+                st.rerun()
+
+        # ── Pivot table: rows = Badanie, columns = dates ──────────────────────
+        df_wynik = df_hist.copy()
+        df_wynik["Wynik"] = pd.to_numeric(
+            df_wynik["Wynik"].astype(str).str.replace(",", ".", regex=False),
+            errors="coerce",
+        )
+        df_status = df_hist[["Data", "Badanie", "Status"]].copy()
+
+        pivot = (
+            df_wynik.pivot_table(
+                index="Badanie", columns="Data", values="Wynik", aggfunc="first"
             )
-
-        edited_hist = st.data_editor(
-            df_hist_edit,
-            use_container_width=True,
-            num_rows="dynamic",
-            column_config={
-                "Wynik": st.column_config.TextColumn("Wynik"),
-                "Min": st.column_config.TextColumn("Min"),
-                "Max": st.column_config.TextColumn("Max"),
-                "Status": st.column_config.SelectboxColumn(
-                    "Status",
-                    options=["w normie", "poniżej normy", "powyżej normy"],
-                ),
-            },
+            .reindex(columns=sorted(df_wynik["Data"].astype(str).unique()))
+        )
+        pivot_status = (
+            df_status.pivot_table(
+                index="Badanie", columns="Data", values="Status", aggfunc="first"
+            )
+            .reindex(columns=sorted(df_status["Data"].astype(str).unique()))
         )
 
-        col_save_hist, col_refresh = st.columns(2)
-        with col_save_hist:
+        def _color_cell(val, status):
+            if status == "w normie":
+                return "background-color: #EAF5EF; color: #2D7A5C;"
+            elif status == "powyżej normy":
+                return "background-color: #FEEDED; color: #C0392B;"
+            elif status == "poniżej normy":
+                return "background-color: #FDF6EE; color: #B5520F;"
+            return ""
+
+        def _style_pivot(df):
+            styles = pd.DataFrame("", index=df.index, columns=df.columns)
+            for row in df.index:
+                for col in df.columns:
+                    if col in pivot_status.columns and row in pivot_status.index:
+                        status = pivot_status.at[row, col]
+                        if pd.notna(status):
+                            styles.at[row, col] = _color_cell(df.at[row, col], status)
+            return styles
+
+        styled = (
+            pivot.style
+            .apply(_style_pivot, axis=None)
+            .format(lambda v: f"{v:.4g}" if pd.notna(v) else "—")
+        )
+
+        st.dataframe(styled, use_container_width=True)
+
+        # ── Editable raw table (collapsed by default) ─────────────────────────
+        with st.expander("Edytuj / usuń wiersze"):
+            df_hist_edit = df_hist.copy()
+            for _col in ("Wynik", "Min", "Max"):
+                df_hist_edit[_col] = (
+                    pd.to_numeric(df_hist_edit[_col], errors="coerce")
+                    .astype(str)
+                    .replace("nan", "")
+                )
+
+            edited_hist = st.data_editor(
+                df_hist_edit,
+                use_container_width=True,
+                num_rows="dynamic",
+                column_config={
+                    "Wynik": st.column_config.TextColumn("Wynik"),
+                    "Min": st.column_config.TextColumn("Min"),
+                    "Max": st.column_config.TextColumn("Max"),
+                    "Status": st.column_config.SelectboxColumn(
+                        "Status",
+                        options=["w normie", "poniżej normy", "powyżej normy"],
+                    ),
+                },
+            )
+
             if st.button("Zapisz zmiany w historii", type="primary", use_container_width=True):
                 try:
                     _sheet = connect_to_google_sheets()
@@ -795,14 +849,10 @@ with tab_history:
                             )
                         _sheet.append_rows(edited_hist.fillna("").values.tolist())
                     st.success("Historia została zaktualizowana.")
-                    st.session_state.hist_df = None  # force reload
+                    st.session_state.hist_df = None
                     st.rerun()
                 except gspread.exceptions.APIError as exc:
                     st.error(f"Błąd API Google Sheets: {exc}")
-        with col_refresh:
-            if st.button("Odśwież dane", use_container_width=True):
-                st.session_state.hist_df = None
-                st.rerun()
 
         # Show charts generated during the last upload session (if present)
         if os.path.exists(CHARTS_DIR):
