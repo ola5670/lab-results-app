@@ -912,10 +912,11 @@ with tab_history:
             except (TypeError, ValueError):
                 return " "
 
+        _numeric_cols = [c for c in pivot.columns if c != "Jednostka"]
         styled = (
             pivot.style
             .apply(_style_pivot, axis=None)
-            .format(_fmt)
+            .format(_fmt, subset=_numeric_cols)
         )
 
         st.dataframe(styled, use_container_width=True)
