@@ -770,18 +770,34 @@ with tab_history:
         )
         df_status = df_hist[["Data", "Badanie", "Status"]].copy()
 
+        sorted_dates = sorted(df_wynik["Data"].astype(str).unique(), reverse=True)
+
         pivot = (
             df_wynik.pivot_table(
                 index="Badanie", columns="Data", values="Wynik", aggfunc="first"
             )
-            .reindex(columns=sorted(df_wynik["Data"].astype(str).unique()))
+            .reindex(columns=sorted_dates)
         )
         pivot_status = (
             df_status.pivot_table(
                 index="Badanie", columns="Data", values="Status", aggfunc="first"
             )
-            .reindex(columns=sorted(df_status["Data"].astype(str).unique()))
+            .reindex(columns=sorted_dates)
         )
+
+        # Add Min / Max columns from the most recent entry per test
+        _norm = (
+            df_hist.copy()
+            .assign(
+                Min=pd.to_numeric(df_hist["Min"].astype(str).str.replace(",", ".", regex=False), errors="coerce"),
+                Max=pd.to_numeric(df_hist["Max"].astype(str).str.replace(",", ".", regex=False), errors="coerce"),
+            )
+            .sort_values("Data", ascending=False)
+            .groupby("Badanie")[["Min", "Max"]]
+            .first()
+        )
+        pivot.insert(0, "Max", _norm["Max"])
+        pivot.insert(0, "Min", _norm["Min"])
 
         def _color_cell(val, status):
             if status == "w normie":
@@ -805,10 +821,86 @@ with tab_history:
         styled = (
             pivot.style
             .apply(_style_pivot, axis=None)
-            .format(lambda v: f"{v:.4g}" if pd.notna(v) else "—")
+            .format(lambda v: f"{v:.4g}" if pd.notna(v) else "", subset=sorted_dates)
+            .format(lambda v: f"{v:.4g}" if pd.notna(v) else "", subset=["Min", "Max"])
         )
 
         st.dataframe(styled, use_container_width=True)
+
+        # ── Summary: min/max/change per test ──────────────────────────────────
+        st.markdown(
+            "<div style='font-size:20px;font-weight:700;color:#1A1A1A;"
+            "margin-top:32px;margin-bottom:12px;'>Podsumowanie</div>",
+            unsafe_allow_html=True,
+        )
+
+        summary_rows = []
+        for badanie, grp in df_wynik.groupby("Badanie"):
+            grp_sorted = grp.dropna(subset=["Wynik"]).sort_values("Data")
+            if grp_sorted.empty:
+                continue
+            vals = grp_sorted["Wynik"].tolist()
+            dates = grp_sorted["Data"].tolist()
+            min_val = min(vals)
+            max_val = max(vals)
+            latest = vals[-1]
+            latest_date = dates[-1]
+            if len(vals) >= 2:
+                prev = vals[-2]
+                prev_date = dates[-2]
+                delta = latest - prev
+                delta_pct = (delta / prev * 100) if prev != 0 else 0.0
+            else:
+                prev = prev_date = delta = delta_pct = None
+
+            # unit
+            unit = ""
+            u_grp = df_hist[df_hist["Badanie"] == badanie]["Jednostka"]
+            if not u_grp.empty:
+                unit = str(u_grp.iloc[0])
+
+            summary_rows.append({
+                "badanie": badanie,
+                "min_val": min_val,
+                "max_val": max_val,
+                "latest": latest,
+                "latest_date": latest_date,
+                "prev": prev,
+                "prev_date": prev_date,
+                "delta": delta,
+                "delta_pct": delta_pct,
+                "unit": unit,
+            })
+
+        cols = st.columns(3, gap="medium")
+        for i, s in enumerate(summary_rows):
+            u = f" {s['unit']}" if s['unit'] else ""
+
+            if s["delta"] is not None:
+                arrow = "↑" if s["delta"] > 0 else ("↓" if s["delta"] < 0 else "→")
+                chg_color = "#C0392B" if s["delta"] > 0 else ("#2D7A5C" if s["delta"] < 0 else "#888")
+                chg_html = (
+                    f'<div style="font-size:13px;color:{chg_color};margin-top:8px;font-weight:600;">'
+                    f'{arrow} {s["delta"]:+.4g}{u} ({s["delta_pct"]:+.1f}%) '
+                    f'<span style="font-weight:400;color:#999;font-size:12px;">'
+                    f'vs {s["prev_date"]}</span></div>'
+                )
+            else:
+                chg_html = '<div style="font-size:13px;color:#AAA;margin-top:8px;">brak poprzedniego pomiaru</div>'
+
+            card = f"""
+<div style="background:#FFFFFF;border-radius:14px;padding:18px 20px;margin-bottom:14px;
+     box-shadow:0 1px 4px rgba(0,0,0,0.06);border:1px solid #F0EDE8;">
+  <div style="font-weight:700;font-size:14px;color:#1A1A1A;margin-bottom:6px;">{s['badanie']}</div>
+  <div style="display:flex;gap:20px;font-size:13px;color:#555;">
+    <span>Min: <b>{s['min_val']:.4g}{u}</b></span>
+    <span>Max: <b>{s['max_val']:.4g}{u}</b></span>
+    <span style="color:#888;">ostatni: <b style="color:#1A1A1A;">{s['latest']:.4g}{u}</b>
+      <span style="font-size:11px;color:#BBB;">({s['latest_date']})</span></span>
+  </div>
+  {chg_html}
+</div>"""
+            cols[i % 3].markdown(card, unsafe_allow_html=True)
 
         # ── Editable raw table (collapsed by default) ─────────────────────────
         with st.expander("Edytuj / usuń wiersze"):
