@@ -866,7 +866,7 @@ with tab_history:
             .reindex(columns=sorted_dates)
         )
 
-        # Add Min / Max columns from the most recent entry per row label
+        # Add Jednostka / Min / Max columns from the most recent entry per row label
         _norm = (
             df_wynik.copy()
             .assign(
@@ -874,11 +874,12 @@ with tab_history:
                 Max=pd.to_numeric(df_hist["Max"].astype(str).str.replace(",", ".", regex=False), errors="coerce"),
             )
             .sort_values("Data", ascending=False)
-            .groupby("_row")[["Min", "Max"]]
+            .groupby("_row")[["Min", "Max", "Jednostka"]]
             .first()
         )
         pivot.insert(0, "Max", _norm["Max"])
         pivot.insert(0, "Min", _norm["Min"])
+        pivot.insert(0, "Jednostka", _norm["Jednostka"])
 
         def _color_cell(val, status):
             if status == "w normie":
