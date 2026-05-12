@@ -377,7 +377,7 @@ def render_results_cards(df_enriched: pd.DataFrame, date: str) -> None:
                 return str(v)
 
         # Display value
-        v_disp = _pl(wynik_raw) or str(wynik_raw)
+        v_disp = _pl(wynik_raw) or "-"
         min_disp = _pl(min_val)
         max_disp = _pl(max_val)
 
@@ -385,9 +385,9 @@ def render_results_cards(df_enriched: pd.DataFrame, date: str) -> None:
         if min_disp or max_disp:
             range_html = f"""
   <div style="display:flex;justify-content:space-between;font-size:12px;color:#999;margin-top:14px;">
-    <span>{min_disp}</span>
+    <span>{min_disp or "-"}</span>
     <span style="color:#BBBBBB;">Zakres normalny</span>
-    <span>{max_disp}</span>
+    <span>{max_disp or "-"}</span>
   </div>
   <div style="background:#E8E5DF;border-radius:4px;height:6px;margin-top:4px;overflow:hidden;">
     <div style="background:{bar_color};height:6px;width:{pct:.1f}%;border-radius:4px;"></div>
@@ -1018,9 +1018,11 @@ with tab_history:
 
             def _plf(v, fmt=".4g"):
                 try:
+                    if v is None or (isinstance(v, float) and pd.isna(v)):
+                        return "-"
                     return format(float(v), fmt).replace(".", ",")
                 except (TypeError, ValueError):
-                    return str(v)
+                    return "-"
 
             if s["delta"] is not None:
                 arrow = "↑" if s["delta"] > 0 else ("↓" if s["delta"] < 0 else "→")
