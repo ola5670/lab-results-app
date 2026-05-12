@@ -1051,44 +1051,97 @@ with tab_history:
 </div>"""
             cols[i % 3].markdown(card, unsafe_allow_html=True)
 
-        # ── Editable raw table (collapsed by default) ─────────────────────────
-        with st.expander("Edytuj / usuń wiersze"):
-            df_hist_edit = df_hist.copy()
-            for _col in ("Wynik", "Min", "Max"):
-                df_hist_edit[_col] = (
-                    pd.to_numeric(df_hist_edit[_col], errors="coerce")
-                    .astype(str)
-                    .replace("nan", "")
-                )
+        # ── Editable pivot table (same layout as display, no colors) ─────────
+        _row_to_badanie = (
+            df_wynik.drop_duplicates("_row")
+            .set_index("_row")["Badanie"]
+            .to_dict()
+        )
 
-            edited_hist = st.data_editor(
-                df_hist_edit,
+        with st.expander("Edytuj / usuń wiersze"):
+            edit_pivot = pivot.copy().reset_index().rename(columns={"_row": "Badanie"})
+
+            def _fmt_edit(v):
+                if v is None or (isinstance(v, float) and pd.isna(v)):
+                    return ""
+                try:
+                    return f"{float(v):.4g}".replace(".", ",")
+                except (ValueError, TypeError):
+                    return ""
+
+            for _c in ["Min", "Max"] + list(sorted_dates):
+                if _c in edit_pivot.columns:
+                    edit_pivot[_c] = edit_pivot[_c].apply(_fmt_edit)
+
+            _col_cfg_edit = {
+                "Badanie": st.column_config.TextColumn("Badanie", disabled=True),
+                "Jednostka": st.column_config.TextColumn("Jednostka"),
+                "Min": st.column_config.TextColumn("Min (norma)"),
+                "Max": st.column_config.TextColumn("Max (norma)"),
+            }
+            for _dc in sorted_dates:
+                if _dc in edit_pivot.columns:
+                    _col_cfg_edit[_dc] = st.column_config.TextColumn(_dc)
+
+            edited_pivot = st.data_editor(
+                edit_pivot,
                 use_container_width=True,
                 num_rows="dynamic",
-                column_config={
-                    "Wynik": st.column_config.TextColumn("Wynik"),
-                    "Min": st.column_config.TextColumn("Min"),
-                    "Max": st.column_config.TextColumn("Max"),
-                    "Status": st.column_config.SelectboxColumn(
-                        "Status",
-                        options=["w normie", "poniżej normy", "powyżej normy"],
-                    ),
-                },
+                column_config=_col_cfg_edit,
             )
 
             if st.button("Zapisz zmiany w historii", type="primary", use_container_width=True):
                 try:
+                    def _parse_num(val):
+                        s = str(val).replace(",", ".").strip()
+                        try:
+                            return float(s) if s not in ("", "nan", "None", "-") else ""
+                        except ValueError:
+                            return ""
+
+                    long_rows = []
+                    for _, erow in edited_pivot.iterrows():
+                        row_label = str(erow.get("Badanie", "")).strip()
+                        if not row_label:
+                            continue
+                        actual_badanie = _row_to_badanie.get(row_label, row_label)
+                        jednostka = str(erow.get("Jednostka", ""))
+                        min_f = _parse_num(erow.get("Min", ""))
+                        max_f = _parse_num(erow.get("Max", ""))
+                        for _dc in sorted_dates:
+                            if _dc not in erow.index:
+                                continue
+                            wynik_f = _parse_num(erow.get(_dc, ""))
+                            if wynik_f == "":
+                                continue
+                            long_rows.append({
+                                "Data": _dc,
+                                "Badanie": actual_badanie,
+                                "Wynik": wynik_f,
+                                "Jednostka": jednostka,
+                                "Min": min_f,
+                                "Max": max_f,
+                                "Status": _compute_status(wynik_f, min_f, max_f),
+                                "Użytkownik": current_user,
+                            })
+
+                    # Preserve rows belonging to other users
+                    _all_hist = st.session_state.hist_df
+                    if _all_hist is not None and not _all_hist.empty and "Użytkownik" in _all_hist.columns:
+                        _u2 = _all_hist["Użytkownik"].astype(str).str.strip()
+                        df_others = _all_hist[(_u2 != current_user) & (_u2 != "")]
+                    else:
+                        df_others = pd.DataFrame(columns=SHEET_COLUMNS)
+
+                    df_combined = pd.concat(
+                        [df_others, pd.DataFrame(long_rows, columns=SHEET_COLUMNS)],
+                        ignore_index=True,
+                    )
                     _sheet = connect_to_google_sheets()
                     _sheet.clear()
                     _sheet.append_row(SHEET_COLUMNS)
-                    if not edited_hist.empty:
-                        for _c in ("Wynik", "Min", "Max"):
-                            edited_hist[_c] = (
-                                edited_hist[_c].astype(str)
-                                .str.replace(",", ".", regex=False)
-                                .replace("nan", "")
-                            )
-                        _sheet.append_rows(edited_hist.fillna("").values.tolist())
+                    if not df_combined.empty:
+                        _sheet.append_rows(df_combined.fillna("").values.tolist())
                     st.success("Historia została zaktualizowana.")
                     st.session_state.hist_df = None
                     st.rerun()
