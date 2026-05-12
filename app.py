@@ -368,14 +368,18 @@ def render_results_cards(df_enriched: pd.DataFrame, date: str) -> None:
         except (ValueError, TypeError):
             pass
 
-        # Display value
-        try:
-            v_disp = f"{float(str(wynik_raw).replace(',', '.')):.4g}"
-        except (ValueError, TypeError):
-            v_disp = str(wynik_raw)
+        def _pl(v, fmt=".4g"):
+            try:
+                if v is None or str(v) in ("", "nan"):
+                    return ""
+                return format(float(str(v).replace(",", ".")), fmt).replace(".", ",")
+            except (ValueError, TypeError):
+                return str(v)
 
-        min_disp = "" if str(min_val) in ("", "nan") else str(min_val)
-        max_disp = "" if str(max_val) in ("", "nan") else str(max_val)
+        # Display value
+        v_disp = _pl(wynik_raw) or str(wynik_raw)
+        min_disp = _pl(min_val)
+        max_disp = _pl(max_val)
 
         range_html = ""
         if min_disp or max_disp:
@@ -954,7 +958,7 @@ with tab_history:
             try:
                 if v is None or (isinstance(v, float) and pd.isna(v)):
                     return "-"
-                return f"{float(v):.4g}"
+                return f"{float(v):.4g}".replace(".", ",")
             except (TypeError, ValueError):
                 return "-"
 
@@ -1012,12 +1016,19 @@ with tab_history:
         for i, s in enumerate(summary_rows):
             u = f" {s['unit']}" if s['unit'] else ""
 
+            def _plf(v, fmt=".4g"):
+                try:
+                    return format(float(v), fmt).replace(".", ",")
+                except (TypeError, ValueError):
+                    return str(v)
+
             if s["delta"] is not None:
                 arrow = "↑" if s["delta"] > 0 else ("↓" if s["delta"] < 0 else "→")
                 chg_color = "#C0392B" if s["delta"] > 0 else ("#2D7A5C" if s["delta"] < 0 else "#888")
+                delta_sign = "+" if s["delta"] >= 0 else ""
                 chg_html = (
                     f'<div style="font-size:13px;color:{chg_color};margin-top:8px;font-weight:600;">'
-                    f'{arrow} {s["delta"]:+.4g}{u} ({s["delta_pct"]:+.1f}%) '
+                    f'{arrow} {delta_sign}{_plf(s["delta"])}{u} ({delta_sign}{_plf(s["delta_pct"], ".1f")}%) '
                     f'<span style="font-weight:400;color:#999;font-size:12px;">'
                     f'vs {s["prev_date"]}</span></div>'
                 )
@@ -1029,9 +1040,9 @@ with tab_history:
      box-shadow:0 1px 4px rgba(0,0,0,0.06);border:1px solid #F0EDE8;">
   <div style="font-weight:700;font-size:14px;color:#1A1A1A;margin-bottom:6px;">{s['badanie']}</div>
   <div style="display:flex;gap:20px;font-size:13px;color:#555;">
-    <span>Min: <b>{s['min_val']:.4g}{u}</b></span>
-    <span>Max: <b>{s['max_val']:.4g}{u}</b></span>
-    <span style="color:#888;">ostatni: <b style="color:#1A1A1A;">{s['latest']:.4g}{u}</b>
+    <span>Min: <b>{_plf(s['min_val'])}{u}</b></span>
+    <span>Max: <b>{_plf(s['max_val'])}{u}</b></span>
+    <span style="color:#888;">ostatni: <b style="color:#1A1A1A;">{_plf(s['latest'])}{u}</b>
       <span style="font-size:11px;color:#BBB;">({s['latest_date']})</span></span>
   </div>
   {chg_html}
