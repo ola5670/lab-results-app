@@ -798,50 +798,20 @@ with tab_history:
         )
     else:
         dates_available = sorted(df_hist["Data"].astype(str).unique())
-        from collections import defaultdict
-        _by_year = defaultdict(list)
-        for d in dates_available:
-            _by_year[d[:4]].append(d)
-        all_years = sorted(_by_year.keys())
+        _min_date = pd.to_datetime(dates_available[0]).date()
+        _max_date = pd.to_datetime(dates_available[-1]).date()
 
-        if "year_filter" not in st.session_state:
-            st.session_state.year_filter = "Wszystkie"
-
-        # ── Year selector ──────────────────────────────────────────────────────
-        st.markdown(
-            '<div style="font-weight:600;font-size:13px;color:#888;margin-bottom:4px;">'
-            'Zapisane daty badań</div>',
-            unsafe_allow_html=True,
-        )
-        selected_year = st.radio(
-            "Rok",
-            options=["Wszystkie"] + all_years,
-            index=(["Wszystkie"] + all_years).index(st.session_state.year_filter),
-            horizontal=True,
-            label_visibility="collapsed",
-            key="year_radio",
-        )
-        if selected_year != st.session_state.year_filter:
-            st.session_state.year_filter = selected_year
-            st.rerun()
-
-        # ── Show dates for selected year ───────────────────────────────────────
-        _active_year = selected_year
-        _show_dates = _by_year[_active_year] if _active_year != "Wszystkie" else []
-        if _show_dates:
-            pills = "".join(
-                f'<span style="background:#F0EDE8;border-radius:6px;padding:3px 10px;'
-                f'margin:2px;display:inline-block;font-size:12px;color:#555;">{d}</span>'
-                for d in sorted(_show_dates)
+        col_cal, col_refresh = st.columns([3, 1])
+        with col_cal:
+            date_range = st.date_input(
+                "Zakres dat badań",
+                value=(_min_date, _max_date),
+                min_value=_min_date,
+                max_value=_max_date,
+                format="DD.MM.YYYY",
             )
-            st.markdown(
-                f'<div style="background:#FFFFFF;border-radius:10px;padding:10px 14px;'
-                f'margin:6px 0 12px;border:1px solid #F0EDE8;">{pills}</div>',
-                unsafe_allow_html=True,
-            )
-
-        col_refresh, _ = st.columns([1, 3])
         with col_refresh:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
             if st.button("Odśwież dane", use_container_width=True):
                 st.session_state.hist_df = None
                 st.rerun()
@@ -896,12 +866,12 @@ with tab_history:
         df_status["_row"] = df_wynik["_row"]
 
         _all_dates = sorted(df_wynik["Data"].astype(str).unique(), reverse=True)
-        _active_year = st.session_state.get("year_filter", "Wszystkie")
-        sorted_dates = (
-            [d for d in _all_dates if d.startswith(_active_year)]
-            if _active_year != "Wszystkie"
-            else _all_dates
-        )
+        if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+            _from = date_range[0].strftime("%Y-%m-%d")
+            _to = date_range[1].strftime("%Y-%m-%d")
+            sorted_dates = [d for d in _all_dates if _from <= d <= _to]
+        else:
+            sorted_dates = _all_dates
 
         pivot = (
             df_wynik.pivot_table(
@@ -980,7 +950,11 @@ with tab_history:
 
         summary_rows = []
         for row_label, grp in df_wynik.groupby("_row"):
-            grp_sorted = grp.dropna(subset=["Wynik"]).sort_values("Data")
+            grp_sorted = (
+                grp.dropna(subset=["Wynik"])
+                .sort_values("Data")
+                .drop_duplicates(subset=["Data"], keep="last")
+            )
             if grp_sorted.empty:
                 continue
             vals = grp_sorted["Wynik"].tolist()
